@@ -1,0 +1,72 @@
+name: Build & Release Proxy5G
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Package macOS App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Display Environment & Swift Version
+        run: |
+          sw_vers
+          swiftc --version
+
+      - name: Compile Native Binary
+        run: |
+          swiftc -O -target arm64-apple-macos12.0 main.swift -o Proxy5G_bin
+
+      - name: Assemble macOS App Bundle
+        run: |
+          APP_DIR="Proxy5G.app"
+          mkdir -p "${APP_DIR}/Contents/MacOS"
+          mkdir -p "${APP_DIR}/Contents/Resources"
+          
+          cp Proxy5G_bin "${APP_DIR}/Contents/MacOS/Proxy5G"
+          chmod +x "${APP_DIR}/Contents/MacOS/Proxy5G"
+          rm -f Proxy5G_bin
+          
+          cp Info.plist "${APP_DIR}/Contents/Info.plist"
+          cp Resources/AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
+          echo -n "APPL????" > "${APP_DIR}/Contents/PkgInfo"
+
+      - name: Code Sign (Ad-Hoc)
+        run: |
+          codesign --force --deep --sign - "Proxy5G.app"
+
+      - name: Create Distribution Archive (.zip)
+        run: |
+          zip -r -y "Proxy5G-macOS-arm64.zip" "Proxy5G.app"
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Proxy5G-macOS-arm64
+          path: Proxy5G-macOS-arm64.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Proxy5G-macOS-arm64.zip
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
